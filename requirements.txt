@@ -1,0 +1,10 @@
+pandas
+numpy
+pyyaml
+websockets
+aiohttp
+quickfix
+stable-baselines3
+gymnasium
+torch
+questdb

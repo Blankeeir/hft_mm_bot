@@ -1,0 +1,35 @@
+exchanges:
+  coinbase:
+    venue: "coinbase_intx"
+    api_key: "<YOUR_API_KEY>"
+    api_secret: "<YOUR_API_SECRET>"
+    passphrase: "<YOUR_PASSPHRASE>"
+    fix:
+      sender_comp_id: "<YOUR_SENDER_COMP_ID>"
+      target_comp_id: "CoinbaseFIX"
+      host: "fix-intx.exchange.coinbase.com"
+      port: 4198
+  okx:
+    api_key: "<YOUR_API_KEY>"
+    api_secret: "<YOUR_API_SECRET>"
+    passphrase: "<YOUR_PASSPHRASE>"
+    fix:
+      sender_comp_id: "<YOUR_SENDER_COMP_ID>"
+      target_comp_id: "OKXFIX"
+      host: "fix.okx.com"
+      port: 1798
+  binance:
+    api_key: "<YOUR_API_KEY>"
+    api_secret: "<YOUR_API_SECRET>"
+    ws_url: "wss://fstream.binance.com"
+questdb:
+  host: "localhost"
+  port: 9009
+strategy:
+  pair: "BTC-USD"
+  base_order_size: 0.001
+  gamma: 0.1
+  k: 1.5
+  inventory_max: 0.05
+  vol_max: 0.02
+  mdd_limit: 0.05
