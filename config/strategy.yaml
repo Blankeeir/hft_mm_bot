@@ -1,0 +1,75 @@
+strategy:
+  name: "RL-Augmented Avellaneda-Stoikov"
+  
+  avellaneda_stoikov:
+    risk_aversion: 0.1
+    order_arrival_intensity: 1.5
+    time_horizon: 86400  # 24 hours in seconds
+    volatility_lookback: 21  # days
+    
+  micro_price:
+    enabled: true
+    queue_weight_factor: 0.5
+    imbalance_threshold: 0.1
+    
+  volatility_forecasting:
+    har_model:
+      enabled: true
+      daily_window: 1
+      weekly_window: 7
+      monthly_window: 30
+      
+    timemixer_model:
+      enabled: true
+      forecast_horizon: 12  # hours
+      input_features: ["ohlcv", "volume", "volatility"]
+      hidden_dim: 128
+      num_layers: 4
+      
+  reinforcement_learning:
+    algorithm: "PPO"
+    learning_rate: 0.0003
+    batch_size: 2048
+    n_epochs: 10
+    clip_range: 0.2
+    entropy_coef: 0.01
+    value_function_coef: 0.5
+    
+    action_space:
+      spread_adjustment: [-0.5, 0.5]  # relative adjustment
+      size_multiplier: [0.1, 2.0]
+      quote_refresh_flag: [0, 1]
+      
+    reward_function:
+      pnl_weight: 1.0
+      inventory_penalty: 0.1
+      order_age_penalty: 0.05
+      
+    latency_simulation:
+      enabled: true
+      min_delay_ms: 30
+      max_delay_ms: 100
+      batch_matching: true
+      
+  risk_management:
+    max_inventory_ratio: 0.1  # 10% of portfolio
+    max_position_size: 1000000  # USDT
+    volatility_threshold: 0.05  # 5% daily volatility
+    drawdown_limit: 0.02  # 2% max drawdown
+    
+    circuit_breakers:
+      enabled: true
+      volatility_multiplier: 1.5
+      inventory_emergency_threshold: 0.15
+      
+  order_management:
+    default_order_size: 1000  # USDT
+    min_spread_bps: 1
+    max_spread_bps: 100
+    order_refresh_interval: 200  # milliseconds
+    
+  backtesting:
+    start_date: "2024-01-01"
+    end_date: "2024-12-31"
+    initial_capital: 100000  # USDT
+    commission_rate: 0.001

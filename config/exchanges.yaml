@@ -1,0 +1,55 @@
+exchanges:
+  binance:
+    name: "Binance"
+    base_url: "https://api.binance.com"
+    fix_endpoint: "tcp+tls://fix-oe.binance.com:9000"
+    websocket_url: "wss://stream.binance.com:9443/ws"
+    api_key: "${BINANCE_API_KEY}"
+    secret_key: "${BINANCE_SECRET_KEY}"
+    fix_api_key: "${BINANCE_FIX_API_KEY}"
+    fix_secret_key: "${BINANCE_FIX_SECRET_KEY}"
+    fees:
+      maker: 0.0000  # 0 bps for VIP 9
+      taker: 0.0013  # 1.3 bps for VIP 9
+    rate_limits:
+      orders_per_second: 100
+      requests_per_minute: 6000
+    supported_order_types: ["LIMIT", "MARKET", "OCO", "OTO", "OTOCO"]
+
+  coinbase:
+    name: "Coinbase International"
+    base_url: "https://api.international.coinbase.com"
+    fix_endpoint: "tcp+tls://fix.international.coinbase.com:4198"
+    websocket_url: "wss://advanced-trade-ws.international.coinbase.com"
+    api_key: "${COINBASE_API_KEY}"
+    secret_key: "${COINBASE_SECRET_KEY}"
+    passphrase: "${COINBASE_PASSPHRASE}"
+    fees:
+      maker: -0.0007  # -0.7 bps rebate for institutional
+      taker: 0.0075   # 0.75 bps for institutional
+    rate_limits:
+      orders_per_second: 50
+      requests_per_minute: 3000
+    supported_order_types: ["LIMIT", "MARKET", "STOP", "STOP_LIMIT"]
+
+  okx:
+    name: "OKX"
+    base_url: "https://www.okx.com"
+    websocket_url: "wss://ws.okx.com:8443/ws/v5/public"
+    api_key: "${OKX_API_KEY}"
+    secret_key: "${OKX_SECRET_KEY}"
+    passphrase: "${OKX_PASSPHRASE}"
+    fees:
+      maker: -0.0001  # -1 bps rebate for institutional
+      taker: 0.0015   # 1.5 bps for institutional
+    rate_limits:
+      orders_per_second: 60
+      requests_per_minute: 2400
+    supported_order_types: ["LIMIT", "MARKET", "POST_ONLY", "IOC", "FOK"]
+
+trading_pairs:
+  - "BTC/USDT"
+  - "ETH/USDT"
+  - "BNB/USDT"
+  - "SOL/USDT"
+  - "ADA/USDT"
