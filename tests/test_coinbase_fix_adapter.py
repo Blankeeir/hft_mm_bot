@@ -202,3 +202,43 @@ class TestCoinbaseFIXAdapter:
         
         assert callback_called
         assert callback_data == {"test": "data"}
+
+    @pytest.mark.asyncio
+    async def test_place_tpsl_order(self, fix_adapter):
+        order = Order(
+            symbol="BTC/USD",
+            side=OrderSide.SELL,
+            order_type=OrderType.TAKE_PROFIT_STOP_LOSS,
+            quantity=1.0,
+            price=60000.0,
+            stop_price=55000.0,
+            stop_limit_price=50000.0,
+            time_in_force="GTC"
+        )
+        
+        fix_adapter.authenticated = True
+        
+        result = await fix_adapter.place_order(order)
+        
+        assert result.startswith("TEST-")
+
+    @pytest.mark.asyncio
+    async def test_modify_order(self, fix_adapter):
+        fix_adapter.authenticated = True
+        
+        result = await fix_adapter.modify_order(
+            "original_order_id",
+            "BTC/USD",
+            quantity=2.0,
+            price=55000.0
+        )
+        
+        assert result != ""
+
+    @pytest.mark.asyncio
+    async def test_mass_cancel_orders(self, fix_adapter):
+        fix_adapter.authenticated = True
+        
+        result = await fix_adapter.mass_cancel_orders(symbol="BTC/USD", side="BUY")
+        
+        assert result != ""
