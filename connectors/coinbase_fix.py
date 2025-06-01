@@ -139,11 +139,12 @@ class CoinbaseFIXConnector(BaseFIXConnector):
             
             if msg_type == FMsg.LOGON:
                 self.authenticated = True
-                logger.info("FIX Logon successful")
+                logger.info(f"Logon successful for {self.session_type} session")
                 
             elif msg_type == FMsg.LOGOUT:
                 self.authenticated = False
-                logger.info("FIX Logout received")
+                text = message.get(FTag.Text, "No reason provided")
+                logger.warning(f"Received Logout: {text}")
                 
             elif msg_type == FMsg.TESTREQUEST:
                 await self._handle_test_request(message)
@@ -160,7 +161,10 @@ class CoinbaseFIXConnector(BaseFIXConnector):
             elif msg_type == FMsg.ORDERCANCELREJECT:
                 await self._handle_order_cancel_reject(message)
                 
-            elif msg_type == "AE":
+            elif msg_type == FMsg.ORDERMASSCANCELREPORT:
+                await self._handle_order_mass_cancel_report(message)
+                
+            elif msg_type == FMsg.TRADECAPTUREREPORT:
                 await self._handle_trade_capture_report(message)
                 
             elif msg_type == "W":
@@ -168,6 +172,9 @@ class CoinbaseFIXConnector(BaseFIXConnector):
                 
             elif msg_type == "X":
                 await self._handle_market_data_incremental(message)
+                
+            else:
+                logger.debug(f"Received unhandled message type: {msg_type}")
                 
         except Exception as e:
             logger.error(f"Error handling FIX message: {e}")
@@ -200,22 +207,45 @@ class CoinbaseFIXConnector(BaseFIXConnector):
             side = message.get(FTag.Side)
             order_status = message.get(FTag.OrdStatus)
             exec_type = message.get(FTag.ExecType)
+            ord_type = message.get(FTag.OrdType, "")
             
             order_side = OrderSide.BUY if side == "1" else OrderSide.SELL
             status = self._map_fix_order_status(order_status)
             
+            order_type = OrderType.LIMIT
+            if ord_type == "1":
+                order_type = OrderType.MARKET
+            elif ord_type == "2":
+                order_type = OrderType.LIMIT
+            elif ord_type == "3":
+                order_type = OrderType.STOP
+            elif ord_type == "4":
+                order_type = OrderType.STOP_LIMIT
+            elif ord_type == "O":
+                order_type = OrderType.TAKE_PROFIT_STOP_LOSS
+            
             order = Order(
                 symbol=symbol.replace('-', '/'),
                 side=order_side,
-                order_type=OrderType.LIMIT,
+                order_type=order_type,
                 quantity=float(message.get(FTag.OrderQty, 0)),
-                price=float(message.get(FTag.Price, 0)),
+                price=float(message.get(FTag.Price, 0)) if message.get(FTag.Price) else None,
                 order_id=order_id,
                 client_order_id=client_order_id,
                 status=status,
                 filled_quantity=float(message.get(FTag.CumQty, 0)),
-                timestamp=int(time.time() * 1000)
+                timestamp=int(time.time() * 1000),
+                stop_price=float(message.get(FTag.StopPx, 0)) if message.get(FTag.StopPx) else None,
+                stop_limit_price=float(message.get(3040, 0)) if message.get(3040) else None
             )
+            
+            ord_type_desc = "TPSL" if ord_type == "O" else ""
+            exec_type_map = {
+                "0": "New", "1": "Partial Fill", "2": "Fill", 
+                "4": "Canceled", "8": "Rejected", "C": "Expired"
+            }
+            exec_desc = exec_type_map.get(exec_type, exec_type)
+            logger.info(f"ExecutionReport: {client_order_id} {symbol} {side} {ord_type_desc} - {exec_desc}")
             
             await self._emit_event('order_update', order)
             
@@ -309,14 +339,30 @@ class CoinbaseFIXConnector(BaseFIXConnector):
             
             side_map = {"BUY": "1", "SELL": "2"}
             fix_side = side_map.get(order.side.value)
+            if not fix_side:
+                raise ValueError(f"Invalid side: {order.side.value}")
             
             order_type_map = {
                 "MARKET": "1",
                 "LIMIT": "2",
                 "STOP": "3",
-                "STOP_LIMIT": "4"
+                "STOP_LIMIT": "4",
+                "TAKE_PROFIT_STOP_LOSS": "O"
             }
             fix_order_type = order_type_map.get(order.order_type.value)
+            if not fix_order_type:
+                raise ValueError(f"Invalid order type: {order.order_type.value}")
+            
+            tif_map = {
+                "DAY": "0",
+                "GTC": "1",
+                "IOC": "3",
+                "FOK": "4",
+                "GTD": "6"
+            }
+            fix_tif = tif_map.get(order.time_in_force.upper())
+            if not fix_tif:
+                raise ValueError(f"Invalid time in force: {order.time_in_force}")
             
             nos = FIXMessage(FMsg.NEWORDERSINGLE)
             nos.set(FTag.ClOrdID, client_order_id)
@@ -325,10 +371,45 @@ class CoinbaseFIXConnector(BaseFIXConnector):
             nos.set(FTag.TransactTime, self._get_utc_timestamp())
             nos.set(FTag.OrdType, fix_order_type)
             nos.set(FTag.OrderQty, str(order.quantity))
-            nos.set(FTag.TimeInForce, "1")
+            nos.set(FTag.TimeInForce, fix_tif)
             
-            if order.price and order.order_type in [OrderType.LIMIT, OrderType.STOP_LIMIT]:
+            if order.order_type in [OrderType.LIMIT, OrderType.STOP_LIMIT] and order.price is not None:
                 nos.set(FTag.Price, str(order.price))
+            
+            if order.order_type in [OrderType.STOP, OrderType.STOP_LIMIT] and order.price is not None:
+                nos.set(FTag.StopPx, str(order.price))
+            
+            if hasattr(order, 'portfolio_id') and order.portfolio_id:
+                nos.set(453, "1")  # NoPartyIDs = 1
+                nos.set(448, order.portfolio_id)  # PartyID = portfolio UUID
+                nos.set(452, "24")  # PartyRole = 24 (Customer account)
+            
+            stp_strategy = getattr(order, 'self_trade_prevention', 'Q')
+            nos.set(8000, stp_strategy)  # SelfTradePreventionStrategy
+            
+            if hasattr(order, 'post_only') and order.post_only:
+                nos.set(18, "6")  # ExecInst = 6 (Post only)
+            
+            if order.order_type == OrderType.TAKE_PROFIT_STOP_LOSS:
+                if order.time_in_force.upper() not in ["GTC", "GTD"]:
+                    raise ValueError("TPSL orders only support GTC and GTD time in force")
+                
+                if hasattr(order, 'post_only') and order.post_only:
+                    raise ValueError("TPSL orders do not support post_only")
+                
+                if order.price is None or order.stop_price is None or order.stop_limit_price is None:
+                    raise ValueError("TPSL orders require price, stop_price, and stop_limit_price")
+                
+                nos.set(FTag.Price, str(order.price))
+                nos.set(FTag.StopPx, str(order.stop_price))
+                nos.set(3040, str(order.stop_limit_price))
+                
+                if fix_side == "2":
+                    if not (order.price > order.stop_price > order.stop_limit_price):
+                        raise ValueError("For Sell TPSL: Price must be > StopPx and StopPx must be > StopLimitPx")
+                else:
+                    if not (order.price < order.stop_price < order.stop_limit_price):
+                        raise ValueError("For Buy TPSL: Price must be < StopPx and StopPx must be < StopLimitPx")
             
             await self.connection.send_msg(nos)
             logger.info(f"Placed {order.order_type.value} {order.side.value} order for {order.quantity} {order.symbol} with client order ID {client_order_id}")
@@ -436,6 +517,123 @@ class CoinbaseFIXConnector(BaseFIXConnector):
     def _get_next_request_id(self) -> int:
         self.next_request_id += 1
         return self.next_request_id
+
+    async def modify_order(
+        self,
+        original_client_order_id: str,
+        symbol: str,
+        quantity: Optional[float] = None,
+        price: Optional[float] = None,
+        stop_price: Optional[float] = None,
+        stop_limit_price: Optional[float] = None,
+    ) -> str:
+        if not self.authenticated or self.session_type != "order_entry":
+            logger.error("Cannot modify order: Not authenticated or wrong session type")
+            return ""
+            
+        if self.test_mode:
+            new_client_order_id = str(uuid.uuid4())
+            logger.info(f"Test mode: Simulating modify for order {original_client_order_id} with new ID {new_client_order_id}")
+            return new_client_order_id
+        
+        try:
+            new_client_order_id = str(uuid.uuid4())
+            
+            ocrr = FIXMessage(FMsg.ORDERCANCELREPLACEREQUEST)
+            ocrr.set(FTag.OrigClOrdID, original_client_order_id)
+            ocrr.set(FTag.ClOrdID, new_client_order_id)
+            ocrr.set(FTag.Symbol, symbol.replace('/', '-'))
+            ocrr.set(FTag.TransactTime, self._get_utc_timestamp())
+            
+            if quantity is not None:
+                ocrr.set(FTag.OrderQty, str(quantity))
+                
+            if price is not None:
+                ocrr.set(FTag.Price, str(price))
+                
+            if stop_price is not None:
+                ocrr.set(FTag.StopPx, str(stop_price))
+                
+            if stop_limit_price is not None:
+                ocrr.set(3040, str(stop_limit_price))
+            
+            await self.connection.send_msg(ocrr)
+            logger.info(f"Sent modify request for order {original_client_order_id} with new ID {new_client_order_id}")
+            
+            return new_client_order_id
+            
+        except Exception as e:
+            logger.error(f"Error modifying order: {e}")
+            return ""
+
+    async def mass_cancel_orders(
+        self,
+        symbol: Optional[str] = None,
+        side: Optional[str] = None,
+    ) -> str:
+        if not self.authenticated or self.session_type != "order_entry":
+            logger.error("Cannot mass cancel orders: Not authenticated or wrong session type")
+            return ""
+            
+        if self.test_mode:
+            client_order_id = str(uuid.uuid4())
+            logger.info(f"Test mode: Simulating mass cancel with ID {client_order_id}")
+            return client_order_id
+        
+        try:
+            client_order_id = str(uuid.uuid4())
+            
+            omcr = FIXMessage("q")
+            omcr.set(FTag.ClOrdID, client_order_id)
+            omcr.set(FTag.TransactTime, self._get_utc_timestamp())
+            
+            if side:
+                fix_side = "1" if side.upper() == "BUY" else "2"
+                omcr.set(FTag.Side, fix_side)
+            
+            if symbol:
+                omcr.set(FTag.Symbol, symbol.replace('/', '-'))
+            
+            await self.connection.send_msg(omcr)
+            logger.info(f"Sent mass cancel request with ID {client_order_id}")
+            
+            return client_order_id
+            
+        except Exception as e:
+            logger.error(f"Error sending mass cancel request: {e}")
+            return ""
+
+    async def _handle_order_mass_cancel_report(self, message: FIXMessage) -> None:
+        try:
+            clord_id = message.get(FTag.ClOrdID, "")
+            mass_action_report_id = message.get(1369, "")
+            symbol = message.get(FTag.Symbol, "")
+            side = message.get(FTag.Side, "")
+            mass_cancel_response = message.get(531, "")
+            total_affected_orders = message.get(533, "0")
+            
+            response_map = {
+                "0": "Cancel Request Rejected",
+                "7": "Cancel All Orders"
+            }
+            
+            response_desc = response_map.get(mass_cancel_response, mass_cancel_response)
+            
+            if mass_cancel_response == "0":
+                reject_reason = message.get(532, "0")
+                reject_reason_map = {
+                    "0": "Mass Cancel Not Supported",
+                    "1": "Invalid or unknown Security",
+                    "99": "Other"
+                }
+                reject_desc = reject_reason_map.get(reject_reason, reject_reason)
+                logger.warning(f"Mass Cancel Rejected: {clord_id} - {reject_desc}")
+            else:
+                logger.info(f"Mass Cancel Report: {clord_id} {symbol} {side} - {response_desc}, "
+                          f"Affected: {total_affected_orders} orders")
+            
+        except Exception as e:
+            logger.error(f"Error handling mass cancel report: {e}")
 
     def _get_utc_timestamp(self) -> str:
         from datetime import timezone

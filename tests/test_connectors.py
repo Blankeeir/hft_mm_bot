@@ -160,6 +160,29 @@ class TestCoinbaseConnector:
             order_id = await connector.place_order(sample_order)
             assert order_id == "abc123"
 
+    @pytest.mark.asyncio
+    async def test_place_tpsl_order(self, coinbase_config):
+        connector = CoinbaseConnector(coinbase_config)
+        
+        tpsl_order = Order(
+            symbol="BTC/USDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.TAKE_PROFIT_STOP_LOSS,
+            quantity=0.001,
+            price=60000.0,
+            stop_price=55000.0,
+            stop_limit_price=50000.0,
+            time_in_force="GTC"
+        )
+        
+        mock_response = {"order_id": "tpsl123"}
+        
+        with patch.object(connector, '_make_request', new_callable=AsyncMock) as mock_request:
+            mock_request.return_value = mock_response
+            
+            order_id = await connector.place_order(tpsl_order)
+            assert order_id == "tpsl123"
+
 
 class TestOKXConnector:
     @pytest.mark.asyncio

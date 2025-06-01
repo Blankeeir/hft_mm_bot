@@ -121,5 +121,35 @@ class CoinbaseFIXAdapter:
         self.next_request_id += 1
         return self.next_request_id
 
+    async def modify_order(
+        self,
+        original_client_order_id: str,
+        symbol: str,
+        quantity: Optional[float] = None,
+        price: Optional[float] = None,
+        stop_price: Optional[float] = None,
+        stop_limit_price: Optional[float] = None,
+    ) -> str:
+        if not self.authenticated:
+            logger.error("Cannot modify order: Not authenticated")
+            return ""
+            
+        new_client_order_id = str(uuid.uuid4())
+        logger.info(f"Test mode: Simulating modify for order {original_client_order_id} with new ID {new_client_order_id}")
+        return new_client_order_id
+
+    async def mass_cancel_orders(
+        self,
+        symbol: Optional[str] = None,
+        side: Optional[str] = None,
+    ) -> str:
+        if not self.authenticated:
+            logger.error("Cannot mass cancel orders: Not authenticated")
+            return ""
+            
+        client_order_id = str(uuid.uuid4())
+        logger.info(f"Test mode: Simulating mass cancel with ID {client_order_id}")
+        return client_order_id
+
     def _get_utc_timestamp(self) -> str:
         return datetime.now(timezone.utc).strftime("%Y%m%d-%H:%M:%S.%f")[:-3]

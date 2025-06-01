@@ -18,6 +18,7 @@ class OrderType(Enum):
     MARKET = "MARKET"
     STOP = "STOP"
     STOP_LIMIT = "STOP_LIMIT"
+    TAKE_PROFIT_STOP_LOSS = "TAKE_PROFIT_STOP_LOSS"
     OCO = "OCO"
     OTO = "OTO"
     OTOCO = "OTOCO"
@@ -46,6 +47,11 @@ class Order:
     average_price: Optional[float] = None
     timestamp: Optional[int] = None
     time_in_force: str = "GTC"
+    stop_price: Optional[float] = None
+    stop_limit_price: Optional[float] = None
+    portfolio_id: Optional[str] = None
+    post_only: bool = False
+    self_trade_prevention: str = "Q"
 
 
 @dataclass
