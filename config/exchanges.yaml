@@ -24,6 +24,10 @@ exchanges:
     api_key: "${COINBASE_API_KEY}"
     secret_key: "${COINBASE_SECRET_KEY}"
     passphrase: "${COINBASE_PASSPHRASE}"
+    sender_comp_id: "${COINBASE_SENDER_COMP_ID}"
+    fix_session_type: "${COINBASE_FIX_SESSION_TYPE}"
+    use_fix_api: true
+    test_mode: false
     fees:
       maker: -0.0007  # -0.7 bps rebate for institutional
       taker: 0.0075   # 0.75 bps for institutional

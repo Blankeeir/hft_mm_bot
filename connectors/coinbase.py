@@ -25,12 +25,33 @@ class CoinbaseConnector(BaseExchangeConnector):
         self.api_key = config.get("api_key")
         self.secret_key = config.get("secret_key")
         self.passphrase = config.get("passphrase")
+        
+        self.fix_connector = None
+        if config.get("fix_endpoint") and config.get("use_fix_api", True):
+            try:
+                from .coinbase_fix import CoinbaseFIXConnector
+                self.fix_connector = CoinbaseFIXConnector(config)
+                logger.info("Coinbase FIX connector initialized")
+            except ImportError:
+                logger.warning("asyncfix not available, using FIX adapter")
+                from .coinbase_fix_adapter import CoinbaseFIXAdapter
+                self.fix_connector = CoinbaseFIXAdapter(config)
+        
         self.ws_connector = CoinbaseWSConnector(config)
         self.session = None
 
     async def connect(self) -> bool:
         try:
             self.session = aiohttp.ClientSession()
+            
+            if self.fix_connector:
+                fix_connected = await self.fix_connector.connect()
+                if fix_connected:
+                    logger.info("Coinbase FIX connection established")
+                    self.is_connected = True
+                    return True
+                else:
+                    logger.warning("FIX connection failed, falling back to WebSocket")
             
             ws_connected = await self.ws_connector.connect()
             if ws_connected:
@@ -44,6 +65,8 @@ class CoinbaseConnector(BaseExchangeConnector):
             return False
 
     async def disconnect(self) -> None:
+        if self.fix_connector:
+            await self.fix_connector.disconnect()
         if self.ws_connector:
             await self.ws_connector.disconnect()
         if self.session:
@@ -80,6 +103,9 @@ class CoinbaseConnector(BaseExchangeConnector):
             return await response.json()
 
     async def place_order(self, order: Order) -> str:
+        if self.fix_connector and self.fix_connector.is_connected:
+            return await self.fix_connector.place_order(order)
+        
         data = {
             'product_id': order.symbol.replace('/', '-'),
             'side': order.side.value.lower(),
@@ -98,6 +124,9 @@ class CoinbaseConnector(BaseExchangeConnector):
         return response.get('order_id')
 
     async def cancel_order(self, symbol: str, order_id: str) -> bool:
+        if self.fix_connector and self.fix_connector.is_connected:
+            return await self.fix_connector.cancel_order(symbol, order_id)
+            
         response = await self._make_request('DELETE', f'/api/v3/brokerage/orders/{order_id}')
         return response.get('success', False)
 
@@ -209,15 +238,21 @@ class CoinbaseConnector(BaseExchangeConnector):
         )
 
     async def subscribe_orderbook(self, symbol: str, callback: Callable) -> None:
-        if self.ws_connector:
+        if self.fix_connector and self.fix_connector.is_connected:
+            await self.fix_connector.subscribe_orderbook(symbol, callback)
+        elif self.ws_connector:
             await self.ws_connector.subscribe_orderbook(symbol, callback)
 
     async def subscribe_trades(self, symbol: str, callback: Callable) -> None:
-        if self.ws_connector:
+        if self.fix_connector and self.fix_connector.is_connected:
+            await self.fix_connector.subscribe_trades(symbol, callback)
+        elif self.ws_connector:
             await self.ws_connector.subscribe_trades(symbol, callback)
 
     async def subscribe_order_updates(self, callback: Callable) -> None:
-        if self.ws_connector:
+        if self.fix_connector and self.fix_connector.is_connected:
+            await self.fix_connector.subscribe_order_updates(callback)
+        elif self.ws_connector:
             await self.ws_connector.subscribe_order_updates(callback)
 
 

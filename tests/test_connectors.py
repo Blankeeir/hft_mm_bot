@@ -7,6 +7,7 @@ from connectors.base import Order, OrderSide, OrderType, OrderStatus
 from connectors.binance import BinanceConnector
 from connectors.coinbase import CoinbaseConnector
 from connectors.okx import OKXConnector
+from connectors.coinbase_fix import CoinbaseFIXConnector
 
 
 @pytest.fixture
@@ -123,6 +124,17 @@ class TestCoinbaseConnector:
         connector = CoinbaseConnector(coinbase_config)
         assert connector.name == "Coinbase International"
         assert connector.passphrase == "test_passphrase"
+        
+    @pytest.mark.asyncio
+    async def test_initialization_with_fix(self, coinbase_config):
+        coinbase_config["fix_endpoint"] = "tcp+tls://fix.international.coinbase.com:4198"
+        coinbase_config["use_fix_api"] = True
+        
+        with patch('connectors.coinbase_fix.CoinbaseFIXConnector') as mock_fix:
+            mock_fix.side_effect = ImportError("asyncfix not available")
+            with patch('connectors.coinbase_fix_adapter.CoinbaseFIXAdapter') as mock_adapter:
+                connector = CoinbaseConnector(coinbase_config)
+                assert connector.fix_connector is not None
         
     @pytest.mark.asyncio
     async def test_signature_generation(self, coinbase_config):
